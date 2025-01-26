@@ -8,7 +8,10 @@ def find_keypoints(img):
     return sift.detectAndCompute(gray, None)
     
 
-def find_matches(des1, des2, display=False):
+def find_matches(des1, des2):
+    if des1 is None or des2 is None:
+        return None
+    
      # FLANN parameters and matcher
     FLANN_INDEX_KDTREE = 1
     index_params = dict(algorithm=FLANN_INDEX_KDTREE, trees=5)
