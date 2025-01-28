@@ -2,40 +2,51 @@ import cv2
 import numpy as np
 
 from perspective_warping.warper import ImageWarper
+from core.camera import CameraCalibrator
+from ar_rendering.cube_renderer import CubeRenderer
+from utils.video_utils import VideoHandler
 
 # ======= constants
 template_path = r'C:\Users\Avi Lezerovich\Documents\GitHub\augmented-reality\data\tmp.png'
-art_path = r'C:\Users\Avi Lezerovich\Documents\GitHub\augmented-reality\data\my_overlay.jpg'
-video_path = r'C:\Users\Avi Lezerovich\Documents\GitHub\augmented-reality\data\video.mp4'
-output_video_path = r'C:\Users\Avi Lezerovich\Documents\GitHub\augmented-reality\data\output_video.mp4'
+overlay_image_path = r'C:\Users\Avi Lezerovich\Documents\GitHub\augmented-reality\data\my_overlay.jpg'
+video_path = r'C:\Users\Avi Lezerovich\Documents\GitHub\augmented-reality\data\v1.mp4'
 
 
-cap = cv2.VideoCapture(video_path)
+# Calibrate camera
+calibrator = CameraCalibrator()
+calibrator.load_coefficients("data/calibration.xml")
+K = calibrator.camera_matrix
+dist_coeffs = calibrator.dist_coefs
 
-frame_width = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
-frame_height = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
-frame_rate = int(cap.get(cv2.CAP_PROP_FPS))
 
+# ====== create warper object
+warper = ImageWarper(template_path, overlay_image_path)
 
-# Use 'mp4v' codec for mp4 format
-out = cv2.VideoWriter(output_video_path, cv2.VideoWriter_fourcc(*'mp4v'), frame_rate, (frame_width, frame_height))
-
-warper = ImageWarper(template_path, art_path)
+# ====== create cube renderer object
+renderer = CubeRenderer(K, dist_coeffs, warper.get_template_size()) 
 
 # ===== video input, output and metadata
+video = VideoHandler(video_path, save_video=True)
+
 
 # ========== run on all frames
-frame_count = 0
 while True:
-    ret, frame = cap.read()
-    if not ret:
+    ret, frame, frame_count= video.read_frame()
+    if not ret or cv2.waitKey(1) == ord('q'):
         break
-    frame_count += 1
+  
     print('frame:', frame_count)
-    res = warper.apply_warp(frame)
-    out.write(res)
+    
+    
+    # Find homography
+    H  = warper.find_homography(frame)
+    frame = renderer.render_cube(frame, H)
+        
+        
+    video.write_frame(frame)
+    cv2.imshow('result',frame)
+    
+    
 
 # ======== end all
-cap.release()
-out.release()
-cv2.destroyAllWindows()
+video.release()

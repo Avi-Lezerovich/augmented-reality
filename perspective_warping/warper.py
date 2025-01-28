@@ -14,11 +14,11 @@ class ImageWarper:
         self.tmp_img =  cv2.imread(template_path)
         self.tmp_kp, self.tmp_des = find_keypoints(self.tmp_img)
 
-        art_img = cv2.imread(img_to_be_warp)
+        overlay_image = cv2.imread(img_to_be_warp)
         h, w = self.tmp_img.shape[:2]
             
         # Warp art image to fit book cover
-        self.art_img = cv2.resize(art_img, (w, h))
+        self.art_img = cv2.resize(overlay_image, (w, h))
         self.h, self.w = h, w
         
 
