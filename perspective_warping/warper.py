@@ -4,25 +4,26 @@ import numpy as np
 import sys
 import os
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
-from core.feature_utils import find_keypoints, find_matches, find_homography
+from core.feature_utils import find_keypoints, find_matches, find_homography, draw_matches
 
 
 
 class ImageWarper:
     def __init__(self, template_path, img_to_be_warp):
         # === template image keypoint and descriptors
-        self.tmp_img = cv2.imread(template_path)
+        self.tmp_img =  cv2.imread(template_path)
         self.tmp_kp, self.tmp_des = find_keypoints(self.tmp_img)
 
-        self.art_img = cv2.imread(img_to_be_warp)
+        art_img = cv2.imread(img_to_be_warp)
         h, w = self.tmp_img.shape[:2]
             
         # Warp art image to fit book cover
-        self.art_img = cv2.resize(self.art_img, (w, h))
+        self.art_img = cv2.resize(art_img, (w, h))
         self.h, self.w = h, w
+        
 
-    def _warp_image(self, img ,H ,mask): 
-        if H is None or mask is None:
+    def _warp_image(self, img ,H): 
+        if H is None :
             return img
         
         warped_art = cv2.warpPerspective(self.art_img, H, (img.shape[1], img.shape[0]))
@@ -38,13 +39,32 @@ class ImageWarper:
         result[mask > 0] = warped_art[mask > 0]
         
         return result
-
-    def apply_warp(self, img):
+        
+    def apply_warp(self, img, display_matches=False):
+        # ====== find keypoints matches of frame and template
         img_kp, img_des = find_keypoints(img)
         matches = find_matches(self.tmp_des, img_des)
     
         # ======== find homography
-        H , mask = find_homography(self.tmp_kp, img_kp, matches)
+        H, _ = find_homography(self.tmp_kp, img_kp, matches)
 
+        if display_matches:
+            draw_matches(self.tmp_img, self.tmp_kp, img, img_kp, matches)
+            
         # ++++++++ do warping of another image on template image
-        return self._warp_image(img, H, mask)
+        return self._warp_image(img, H)
+ 
+
+    def find_homography(self, img):
+        # ====== find keypoints matches of frame and template
+        img_kp, img_des = find_keypoints(img)
+        matches = find_matches(self.tmp_des, img_des)
+    
+        # ======== find homography
+        H, _ = find_homography(self.tmp_kp, img_kp, matches)
+        
+        return H
+    
+    
+    def get_template_size(self):
+        return self.h, self.w
