@@ -38,6 +38,9 @@ class CameraCalibrator:
                 self.visualize_calibration(fname, corners)
                 cv2.waitKey(0)
 
+        if display:
+            cv2.destroyAllWindows()
+            
         h, w = cv2.imread(img_names[0]).shape[:2]
         self.rms, self.camera_matrix, self.dist_coefs, self.rvecs, self.tvecs = \
             cv2.calibrateCamera(obj_points, img_points, (w, h), None, None)
@@ -136,11 +139,3 @@ class CameraCalibrator:
         print(f"Camera matrix:\n {self.camera_matrix}\n")
         print(f"Distortion coefficients:\n {self.dist_coefs.ravel()}")
 
-
-if __name__ == "__main__":
-    images_path = r"C:\Users\Avi Lezerovich\Documents\GitHub\augmented-reality\data\images"
-    clb = CameraCalibrator()
-    # clb.calibrate_camera(images_path, "jpg", display=False)
-    # clb.save_coefficients("data\calibration.xml")
-    clb.load_coefficients("data\calibration.xml")
-    clb.print_coefficients()
