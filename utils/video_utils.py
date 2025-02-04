@@ -94,34 +94,38 @@ def video_to_frames(input_path, output_dir):
 
 
 
-def merge_images_side_by_side(img1, img2, img3):
-    # Get image dimensions (height, width)
+
+
+
+def merge_images_side_by_side(img1, img2):
     h1, w1 = img1.shape[:2]
     h2, w2 = img2.shape[:2]
-    h3, w3 = img3.shape[:2]
-    
-    # Use the smallest height as the common height
-    common_height = min(h1, h2, h3)
-    
-    # Calculate new widths preserving aspect ratio
+
+    common_height = min(h1, h2)
     new_w1 = int(w1 * (common_height / h1))
     new_w2 = int(w2 * (common_height / h2))
-    new_w3 = int(w3 * (common_height / h3))
     
+    
+    # Resize images to common height and new widths
+
     # Resize images to common height and new widths
     img1_resized = cv2.resize(img1, (new_w1, common_height))
     img2_resized = cv2.resize(img2, (new_w2, common_height))
-    img3_resized = cv2.resize(img3, (new_w3, common_height))
-    
-    # Concatenate images horizontally
-    merged_image = cv2.hconcat([img1_resized, img2_resized, img3_resized])
-    return merged_image
+
+    return cv2.hconcat([img1_resized, img2_resized])
+
+def merge_images_top_to_bottom(img1, img2):
+    h1, w1 = img1.shape[:2]
+    h2, w2 = img2.shape[:2]
+
+    common_width = min(w1, w2)
+    new_h1 = int(h1 * (common_width / w1))
+    new_h2 = int(h2 * (common_width / w2))
+
+    img1_resized = cv2.resize(img1, (common_width, new_h1))
+    img2_resized = cv2.resize(img2, (common_width, new_h2))
+
+    return cv2.vconcat([img1_resized, img2_resized])
 
 
-
-
-
-video_name = '1'
-art_wrapped = True
-output_name = f'art_wrapped_{video_name}' if art_wrapped else f'3d_cube_{video_name}'
 

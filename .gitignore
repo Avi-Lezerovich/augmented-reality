@@ -5,6 +5,8 @@ __pycache__/
 notebook
 diagrams
 images
+data
+open3d_env
 # C extensions
 *.so
 

@@ -1,1 +1,0 @@
-# Part 3 - Full 3D model
