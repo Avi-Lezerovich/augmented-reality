@@ -49,34 +49,54 @@ class CubeRenderer:
 
     def load_and_scale_model(self, model_path, scale_factor):
         """
-        Loads, rotates, scales, and positions the 3D model, then colors it red.
+        Loads, rotates, scales, and positions the 3D model, and applies the textures,
+        ensuring it sits properly with z <= 0 (similar to your cube).
         """
-        self.mesh = o3d.io.read_triangle_mesh(model_path)
+        # 1) Load the model with materials and textures
+        self.mesh = o3d.io.read_triangle_mesh(model_path, enable_post_processing=True)
         self.mesh.compute_vertex_normals()
 
-        # Rotate model 90 degrees around X-axis
+        # 2) (Optional) Rotate model 90 degrees around the X-axis if needed
+        #    Check sign of that last row to get the orientation you desire.
         rotation_matrix = np.array([
-            [1, 0, 0],
-            [0, 0, 1],
-            [0, -1, 0]
+            [1,  0,  0],
+            [0,  0,  1],
+            [0, -1,  0]
         ], dtype=np.float64)
+
         bbox = self.mesh.get_axis_aligned_bounding_box()
         center = bbox.get_center()
         self.mesh.rotate(rotation_matrix, center=center)
 
-        # Scale to fit cube
+        # 3) Scale model so its largest dimension matches your chosen base_side
         base_side = min(self.w, self.h) * scale_factor
         bbox = self.mesh.get_axis_aligned_bounding_box()
         max_dim = max(bbox.get_extent())
         if max_dim > 0:
             self.mesh.scale(base_side / max_dim, center=bbox.get_center())
 
-        # Position at origin
+        # 4) First translate so that the bounding-box min corner is at (0,0,0)
         new_bbox = self.mesh.get_axis_aligned_bounding_box()
         new_min = new_bbox.get_min_bound()
         self.mesh.translate(-new_min)
-        # Paint the model red
-        self.mesh.paint_uniform_color([1, 0, 0])
+
+        # 5) Then shift so that the bounding-box max z is at z=0;
+        #    that means the entire model is behind the plane (z <= 0).
+        shifted_bbox = self.mesh.get_axis_aligned_bounding_box()
+        zmax = shifted_bbox.get_max_bound()[2]
+        self.mesh.translate([0, 0, -zmax])
+
+        # 6) Check textures
+        if self.mesh.has_textures():
+            print("Texture loaded successfully.")
+        else:
+            print("No texture found. Ensure the .mtl file and texture path are correct.")
+
+        print("Mesh stats:")
+        print("  Has normals?  ", self.mesh.has_vertex_normals())
+        print("  Has colors?   ", self.mesh.has_vertex_colors())
+        print("  Has textures? ", self.mesh.has_textures())
+
         
     def solve_pnp(self, warped_corners):
         warped_corners = np.float32(warped_corners).reshape(-1, 1, 2)
