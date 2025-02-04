@@ -126,10 +126,11 @@ class CubeRenderer:
         return frame
 
     
-    def render_model(self, frame, H):
-        if H is None or self.mesh is None:
+    def render_model_textured(self, frame, H):
+        if H is None or self.mesh is None or not self.mesh.has_textures():
             return frame
 
+        # Step 1: Solve PnP and get rvec, tvec
         template_corners_2d = np.float32([
             [0, 0], [self.w, 0], [self.w, self.h], [0, self.h]
         ]).reshape(-1, 1, 2)
@@ -138,11 +139,62 @@ class CubeRenderer:
         if rvec is None or tvec is None:
             return frame
 
-        vertices = np.asarray(self.mesh.vertices)
-        verts_reshaped = vertices.reshape(-1, 1, 3).astype(np.float32)
-        projected, _ = cv2.projectPoints(verts_reshaped, rvec, tvec, self.K, self.dist)
+        # Step 2: Suppose we have exactly 1 texture image in self.mesh.textures[0]
+        # Convert that open3d Image to a NumPy array:
+        if len(self.mesh.textures) == 0:
+            return frame
+        texture_o3d = self.mesh.textures[0]
+        texture = np.asarray(texture_o3d)  # shape = (H, W, 3) or (H, W)
         
-        # Draw projected vertices in red (BGR: (0, 0, 255))
-        for pt in projected.reshape(-1, 2):
-            cv2.circle(frame, tuple(pt.astype(int)), 2, (0, 0, 255), -1)
+        # Step 3: For each triangle, get 3D vertices and 2D UVs
+        triangles = np.asarray(self.mesh.triangles)
+        triangle_uvs = np.asarray(self.mesh.triangle_uvs)  # 3 uvs per triangle vertex
+
+        vertices_3d = np.asarray(self.mesh.vertices)
+
+        for i, tri in enumerate(triangles):
+            # tri is something like [v0, v1, v2]
+            v0, v1, v2 = tri
+            pts_3d = np.float32([
+                vertices_3d[v0],
+                vertices_3d[v1],
+                vertices_3d[v2],
+            ]).reshape(-1, 1, 3)
+
+            # Project them
+            pts_2d, _ = cv2.projectPoints(pts_3d, rvec, tvec, self.K, self.dist)
+            pts_2d = pts_2d.reshape(-1, 2).astype(np.float32)
+
+            # Get the corresponding UV coords for these vertices
+            uv0, uv1, uv2 = triangle_uvs[3*i : 3*i + 3]  # each is (u, v) in [0..1]
+            
+            # Convert UV coords to pixel coords in the texture image
+            Ht, Wt = texture.shape[:2]
+            tex_tri = np.float32([
+                [uv0[0] * Wt, uv0[1] * Ht],
+                [uv1[0] * Wt, uv1[1] * Ht],
+                [uv2[0] * Wt, uv2[1] * Ht],
+            ])
+
+            # Step 4: Compute a warp that maps the triangle in the texture to triangle in the frame
+            M = cv2.getAffineTransform(tex_tri[:3], pts_2d[:3])
+
+            # Step 5: Warp that triangular region from texture onto the frame
+            # We can use warpAffine on a bounding rectangle or do piecewise warping
+            # For a quick hack, do an affine warp of the bounding box, then mask with the triangle.
+            bbox_x, bbox_y, bbox_w, bbox_h = cv2.boundingRect(pts_2d)
+            if bbox_w > 0 and bbox_h > 0:
+                # We'll warp the relevant region from the texture into a temporary patch
+                patch = cv2.warpAffine(
+                    texture, M, (frame.shape[1], frame.shape[0]),
+                    flags=cv2.INTER_LINEAR, borderMode=cv2.BORDER_CONSTANT
+                )
+                # Create a mask of the triangle in the same coordinate space
+                mask = np.zeros((frame.shape[0], frame.shape[1]), dtype=np.uint8)
+                cv2.fillConvexPoly(mask, pts_2d.astype(int), 255)
+                
+                # Blend or copy the patch into the frame using the mask
+                mask_bool = (mask == 255)
+                frame[mask_bool] = patch[mask_bool]
+        
         return frame
