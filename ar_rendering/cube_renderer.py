@@ -126,7 +126,7 @@ class CubeRenderer:
         return frame
 
     
-    def render_model_textured(self, frame, H):
+    def render_model(self, frame, H):
         if H is None or self.mesh is None or not self.mesh.has_textures():
             return frame
 
@@ -139,62 +139,89 @@ class CubeRenderer:
         if rvec is None or tvec is None:
             return frame
 
-        # Step 2: Suppose we have exactly 1 texture image in self.mesh.textures[0]
-        # Convert that open3d Image to a NumPy array:
-        if len(self.mesh.textures) == 0:
-            return frame
-        texture_o3d = self.mesh.textures[0]
-        texture = np.asarray(texture_o3d)  # shape = (H, W, 3) or (H, W)
-        
-        # Step 3: For each triangle, get 3D vertices and 2D UVs
-        triangles = np.asarray(self.mesh.triangles)
-        triangle_uvs = np.asarray(self.mesh.triangle_uvs)  # 3 uvs per triangle vertex
+        # Precompute camera position for backface culling
+        R = cv2.Rodrigues(rvec)[0]
+        cam_pos = (-R.T @ tvec).flatten()
 
+        # Step 2: Preprocess texture once per frame
+        if not hasattr(self, 'texture_np') or self.texture_np is None:
+            if len(self.mesh.textures) == 0:
+                return frame
+            self.texture_np = np.asarray(self.mesh.textures[0])
+        texture = self.texture_np
+        Ht, Wt = texture.shape[:2]
+
+        # Precompute UV coordinates in texture space
+        triangle_uvs = np.asarray(self.mesh.triangle_uvs) * [Wt, Ht]
+
+        # Batch project all vertices once
         vertices_3d = np.asarray(self.mesh.vertices)
+        triangles = np.asarray(self.mesh.triangles)
+        all_pts_2d, _ = cv2.projectPoints(
+            vertices_3d.reshape(-1, 1, 3), rvec, tvec, self.K, self.dist
+        )
+        all_pts_2d = all_pts_2d.reshape(-1, 2)
 
         for i, tri in enumerate(triangles):
-            # tri is something like [v0, v1, v2]
             v0, v1, v2 = tri
-            pts_3d = np.float32([
-                vertices_3d[v0],
-                vertices_3d[v1],
-                vertices_3d[v2],
-            ]).reshape(-1, 1, 3)
-
-            # Project them
-            pts_2d, _ = cv2.projectPoints(pts_3d, rvec, tvec, self.K, self.dist)
-            pts_2d = pts_2d.reshape(-1, 2).astype(np.float32)
-
-            # Get the corresponding UV coords for these vertices
-            uv0, uv1, uv2 = triangle_uvs[3*i : 3*i + 3]  # each is (u, v) in [0..1]
             
-            # Convert UV coords to pixel coords in the texture image
-            Ht, Wt = texture.shape[:2]
-            tex_tri = np.float32([
-                [uv0[0] * Wt, uv0[1] * Ht],
-                [uv1[0] * Wt, uv1[1] * Ht],
-                [uv2[0] * Wt, uv2[1] * Ht],
-            ])
+            # Backface culling
+            vec1 = vertices_3d[v1] - vertices_3d[v0]
+            vec2 = vertices_3d[v2] - vertices_3d[v0]
+            normal = np.cross(vec1, vec2)
+            norm = np.linalg.norm(normal)
+            if norm == 0:
+                continue
+            normal /= norm
+            centroid = (vertices_3d[v0] + vertices_3d[v1] + vertices_3d[v2]) / 3
+            if np.dot(normal, (centroid - cam_pos)) > 0:
+                continue
 
-            # Step 4: Compute a warp that maps the triangle in the texture to triangle in the frame
-            M = cv2.getAffineTransform(tex_tri[:3], pts_2d[:3])
+            # Get projected points
+            pts_2d = all_pts_2d[[v0, v1, v2]]
+            pts_2d = np.array(pts_2d, dtype=np.float32)  # ensure type is float32
+            x, y, w, h = cv2.boundingRect(pts_2d)
+            if w == 0 or h == 0:
+                continue
 
-            # Step 5: Warp that triangular region from texture onto the frame
-            # We can use warpAffine on a bounding rectangle or do piecewise warping
-            # For a quick hack, do an affine warp of the bounding box, then mask with the triangle.
-            bbox_x, bbox_y, bbox_w, bbox_h = cv2.boundingRect(pts_2d)
-            if bbox_w > 0 and bbox_h > 0:
-                # We'll warp the relevant region from the texture into a temporary patch
-                patch = cv2.warpAffine(
-                    texture, M, (frame.shape[1], frame.shape[0]),
-                    flags=cv2.INTER_LINEAR, borderMode=cv2.BORDER_CONSTANT
-                )
-                # Create a mask of the triangle in the same coordinate space
-                mask = np.zeros((frame.shape[0], frame.shape[1]), dtype=np.uint8)
-                cv2.fillConvexPoly(mask, pts_2d.astype(int), 255)
-                
-                # Blend or copy the patch into the frame using the mask
-                mask_bool = (mask == 255)
-                frame[mask_bool] = patch[mask_bool]
-        
+            # Get texture coordinates
+            uv_indices = slice(3*i, 3*i+3)
+            tex_tri = triangle_uvs[uv_indices]
+
+            # Convert to numpy array with type float32 and reshape to (-1,2)
+            tex_tri = np.asarray(tex_tri, dtype=np.float32).reshape(-1, 2)
+            if tex_tri.size == 0 or tex_tri.shape[0] < 1:
+                continue
+
+            x0, y0, w0, h0 = cv2.boundingRect(tex_tri)
+            if w0 == 0 or h0 == 0:
+                continue
+
+            # Crop texture and adjust coordinates
+            texture_patch = texture[y0:y0+h0, x0:x0+w0]
+            src_pts = tex_tri - [x0, y0]
+            dst_pts_rel = pts_2d - [x, y]
+
+            # Compute affine transform
+            M = cv2.getAffineTransform(
+                src_pts.astype(np.float32), 
+                dst_pts_rel.astype(np.float32)
+            )
+
+            # Warp texture patch
+            patch = cv2.warpAffine(
+                texture_patch, M, (w, h),
+                flags=cv2.INTER_LINEAR,
+                borderMode=cv2.BORDER_CONSTANT
+            )
+
+            # Create mask and apply
+            mask = np.zeros((h, w), dtype=np.uint8)
+            cv2.fillConvexPoly(mask, dst_pts_rel.astype(int), 255)
+            roi = frame[y:y+h, x:x+w]
+            roi[mask > 0] = patch[mask > 0]
+            frame[y:y+h, x:x+w] = roi
+
         return frame
+    
+    

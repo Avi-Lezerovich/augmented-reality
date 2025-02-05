@@ -28,7 +28,7 @@ class VideoHandler:
                 output_path,
                 fourcc,
                 self.frame_rate,
-                (self.frame_width, self.frame_height),
+                (self.frame_height, self.frame_width),
                 isColor=True
             )
 

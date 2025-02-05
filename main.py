@@ -15,8 +15,7 @@ template_path = r'C:\Users\Avi Lezerovich\Documents\GitHub\augmented-reality\dat
 overlay_image_path = r'C:\Users\Avi Lezerovich\Documents\GitHub\augmented-reality\data\my_overlay.jpg'
 video_path = r'C:\Users\Avi Lezerovich\Documents\GitHub\augmented-reality\data\\'  + video_name + '.mp4'
 
-model_path = r'C:\Users\Avi Lezerovich\Documents\GitHub\augmented-reality\data\models\teapot.obj'
-
+model_path = r'C:\Users\Avi Lezerovich\Documents\GitHub\augmented-reality\data\models\fuel_can\fuel_can.obj'
 
 # # Calibrate camera
 calibrator = CameraCalibrator()
@@ -45,6 +44,7 @@ while True:
     if not ret or cv2.waitKey(1) == ord('q'):
         break
     
+    frame = cv2.rotate(frame, cv2.ROTATE_90_CLOCKWISE)
 
     print('frame:', frame_count)
     # Find homography
@@ -55,26 +55,25 @@ while True:
     cube =  renderer.render_cube(frame.copy(), H)
     model = renderer.render_model(frame.copy(), H)
 
-    img1 = merge_images_top_to_bottom(model, cube)
-    img2 = merge_images_top_to_bottom(wrp, match_frame)
+    img1 = merge_images_side_by_side(model, cube)
+    img2 = merge_images_side_by_side(wrp, match_frame)
     
-    img = merge_images_side_by_side(img1, img2)
+    img = merge_images_top_to_bottom(img1, img2)
     
-    img_resized = cv2.resize(img, (video.frame_width, video.frame_height))
+    img = cv2.resize(img, (video.frame_height, video.frame_width))
 
     wrp_out.write_frame(wrp)
     cube_out.write_frame(cube)
     model_out.write_frame(model)
-    all_out.write_frame(img_resized)
-    
-    img = cv2.resize(img, (int(img.shape[0]/2), int(img.shape[1]/2)))
+    all_out.write_frame(img)
 
     cv2.imshow('result', img)
-    prev_H = H
-
+    
 # ======== end all
 video.release()
 wrp_out.release()
 cube_out.release()
 model_out.release()
 all_out.release()
+
+
